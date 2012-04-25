@@ -43,7 +43,7 @@ def generate_pipelines(config):
         })
     return pipelines
 
-def initiate_pipelines(pipelines):
+def initiate_pipelines(pipelines, daemon=True):
     LOG.info('Initializing pipelines.. getting ready to do work')
     threads = []
     for pipe in pipelines:
@@ -52,19 +52,20 @@ def initiate_pipelines(pipelines):
             target=pipeline_worker,
             args=(pipe['source'], pipe['filters'], pipe['endpoint'])
         )
+        t.daemon = True
         threads.append(t)
         LOG.debug('Starting pipeline worker "%s"' % pipe['name'])
         t.start()
-
-    LOG.info('Workers are now waiting for events.')
-    for thread in threads:
-        thread.join()
 
     return threads    
 
 def pipeline_worker(source, filters, endpoint):
     endpoint_fd = open(endpoint, 'a')
-    lines = tail_file(open(source))
+    try:
+        lines = tail_file(open(source))
+    except IOError:
+        LOG.exception('Could not tail source "%s"' % source)
+        return
     lines = ( line for line in lines if line_match(line, filters) )
     for line in lines:
         endpoint_fd.write(line)
