@@ -1,6 +1,7 @@
 import time
 import os
 import re
+import sys
 import threading
 import logging
 from ConfigParser import RawConfigParser
@@ -18,6 +19,48 @@ def parse_config(filename):
         if conf[section].has_key('__name__'):
             del conf[section]['__name__']
     return conf
+
+#
+# E.g. if ``isolog.filters.regexp('^.*$')`` is the stanza, then..
+#
+#   lib == isolog.filters.regexp
+#
+STANZA_RE = re.compile(
+    "^(?P<lib>[a-zA-Z0-9\.]+)"
+    "\((.+?)?\)$"
+)
+
+def execute_namespaced_function(func_str):
+    cannot_exec = RuntimeError('could not execute stanza "%s"' % func_str)
+
+    lib_name = parse_stanza(func_str)
+    if lib_name is None:
+        raise cannot_exec
+
+    highlvl = lib_name.split('.')
+    if len(highlvl) == 1:
+        highlvl = lib_name
+    else:
+        highlvl = highlvl[0]
+    lib = __import__(highlvl)
+    ns = {highlvl: lib}
+    code_str = '__isolog_func__ = %s' % func_str
+    code = compile(code_str, '<string>', 'single')
+    try:
+        exec code in ns
+    except Exception, e:
+        cannot_exec.args = ("%s\n\nInterpreter raised the following:\n\n%s" % (cannot_exec.args[0], repr(e)),)
+        raise cannot_exec
+    return ns.get('__isolog_func__')
+_enf = execute_namespaced_function
+
+def parse_stanza(stanza):
+    match = STANZA_RE.match(stanza)
+    if not match: return None
+#        raise SyntaxError("invalid stanza '%s' in section '%s'" % stanza_info)
+
+    lib = match.group('lib')
+    return lib
 
 def validate_pipe(pipe, config):
     assert pipe['source'] in config['sources'].keys()
